@@ -14,27 +14,28 @@ public class TransferDeadLetterMessages
     private static ServiceBusClient client;
     private static ServiceBusSender sender;
 
-    public static async Task ProcessTopicAsync(string connectionString, string topicName, string subscriberName, int fetchCount = 10)
+    public static async Task ProcessTopicAsync(string connectionString, string topicName, string subscriptionName, int fetchCount = 10)
     {
         try
         {
             client = new ServiceBusClient(connectionString);
             sender = client.CreateSender(topicName);
 
-            ServiceBusReceiver dlqReceiver = client.CreateReceiver(topicName, subscriberName, new ServiceBusReceiverOptions
+            ServiceBusReceiver dlqReceiver = client.CreateReceiver(topicName, subscriptionName, new ServiceBusReceiverOptions
             {
                 SubQueue = SubQueue.DeadLetter,
-                ReceiveMode = ServiceBusReceiveMode.PeekLock
+                ReceiveMode = ServiceBusReceiveMode.PeekLock,
+                PrefetchCount = fetchCount
             });
 
-            await ProcessDeadLetterMessagesAsync($"topic: {topicName} -> subscriber: {subscriberName}", fetchCount, sender, dlqReceiver);
+            await ProcessDeadLetterMessagesAsync($"topic: {topicName} -> subscriber: {subscriptionName}", fetchCount, sender, dlqReceiver);
         }
         catch (Azure.Messaging.ServiceBus.ServiceBusException ex)
         {
             if (ex.Reason == Azure.Messaging.ServiceBus.ServiceBusFailureReason.MessagingEntityNotFound)
             {
-                Console.Error.WriteLine(ex);
-                Console.Error.WriteLine($"Topic:Subscriber '{topicName}:{subscriberName}' not found. Check that the name provided is correct.");
+                WriteError(ex);
+                WriteError($"Topic:Subscriber '{topicName}:{subscriptionName}' not found. Check that the name provided is correct.");
             }
             else
             {
@@ -67,8 +68,8 @@ public class TransferDeadLetterMessages
         {
             if (ex.Reason == Azure.Messaging.ServiceBus.ServiceBusFailureReason.MessagingEntityNotFound)
             {
-                Console.Error.WriteLine(ex);
-                Console.Error.WriteLine($"Queue '{queueName}' not found. Check that the name provided is correct.");
+                WriteError(ex);
+                WriteError($"Queue '{queueName}' not found. Check that the name provided is correct.");
             }
             else
             {
@@ -89,33 +90,79 @@ public class TransferDeadLetterMessages
         Console.WriteLine($"fetching messages ({wait.TotalSeconds} seconds retrieval timeout)");
         Console.WriteLine(source);
 
-        IReadOnlyList<ServiceBusReceivedMessage> dlqMessages = await dlqReceiver.ReceiveMessagesAsync(fetchCount, wait);
-
-        Console.WriteLine($"dl-count: {dlqMessages.Count}");
-
-        int i = 1;
-
-        foreach (var dlqMessage in dlqMessages)
+        int totalProcessed = 0;
+        do
         {
-            Console.WriteLine($"start processing message {i}");
-            Console.WriteLine($"dl-message-dead-letter-message-id: {dlqMessage.MessageId}");
-            Console.WriteLine($"dl-message-dead-letter-reason: {dlqMessage.DeadLetterReason}");
-            Console.WriteLine($"dl-message-dead-letter-error-description: {dlqMessage.DeadLetterErrorDescription}");
+            await Task.Delay(1000);
+            IReadOnlyList<ServiceBusReceivedMessage> dlqMessages = await dlqReceiver.ReceiveMessagesAsync(fetchCount, wait);
 
-            ServiceBusMessage resubmittableMessage = new ServiceBusMessage(dlqMessage);
+            Console.WriteLine($"dl-count: {dlqMessages.Count}");
 
-            await sender.SendMessageAsync(resubmittableMessage);
+            int i = 1;
 
-            await dlqReceiver.CompleteMessageAsync(dlqMessage);
+            foreach (var dlqMessage in dlqMessages)
+            {
+                //Console.WriteLine($"start processing message {i}");
+                Console.WriteLine($"dl-message-dead-letter-message-id: {dlqMessage.MessageId}");
+                //Console.WriteLine($"dl-message-dead-letter-reason: {dlqMessage.DeadLetterReason}");
+                //Console.WriteLine($"dl-message-dead-letter-error-description: {dlqMessage.DeadLetterErrorDescription}");
 
-            Console.WriteLine($"finished processing message {i}");
-            Console.WriteLine("--------------------------------------------------------------------------------------");
+                string cleanBody = "";
+                if (!string.IsNullOrEmpty(dlqMessage.Body.ToString()))
+                {
+                    string stringVal = dlqMessage.Body.ToString();
 
-            i++;
-        }
+                    int firstIndex = stringVal.IndexOf('{');
+                    int lastIndex = stringVal.LastIndexOf('}');
+                    cleanBody = stringVal.Substring(firstIndex, lastIndex - firstIndex + 1);
+
+                }
+                var resubmittableMessage = new ServiceBusMessage(dlqMessage);
+                resubmittableMessage.Body = new BinaryData(cleanBody);
+
+                await sender.SendMessageAsync(resubmittableMessage);
+
+                try
+                {
+                    await dlqReceiver.CompleteMessageAsync(dlqMessage);
+                }
+                catch (ServiceBusException e)
+                {
+                    WriteError(resubmittableMessage.MessageId);
+                    WriteError(e.Message);
+                }
+
+
+                Console.WriteLine($"finished processing message {i}");
+                Console.WriteLine("--------------------------------------------------------------------------------------");
+
+                i++;
+                totalProcessed++;
+            }
+        } while (totalProcessed < fetchCount);
 
         await dlqReceiver.CloseAsync();
 
         Console.WriteLine($"finished");
+    }
+
+    private static void WriteError(string message)
+    {
+        var originalColor = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Red;
+
+        Console.Error.WriteLine(message);
+
+        Console.ForegroundColor = originalColor;
+    }
+
+    private static void WriteError(object message)
+    {
+        var originalColor = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Red;
+
+        Console.Error.WriteLine(message);
+
+        Console.ForegroundColor = originalColor;
     }
 }
