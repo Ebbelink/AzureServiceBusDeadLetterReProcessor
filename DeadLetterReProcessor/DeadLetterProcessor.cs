@@ -1,13 +1,8 @@
 ﻿using Azure.Messaging.ServiceBus;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DeadLetterReProcessor;
 
-public class TransferDeadLetterMessages
+public class DeadLetterProcessor
 {
     // https://github.com/Azure/azure-sdk-for-net/blob/Azure.Messaging.ServiceBus_7.2.1/sdk/servicebus/Azure.Messaging.ServiceBus/README.md
 
@@ -30,7 +25,7 @@ public class TransferDeadLetterMessages
 
             await ProcessDeadLetterMessagesAsync($"topic: {topicName} -> subscriber: {subscriptionName}", fetchCount, sender, dlqReceiver);
         }
-        catch (Azure.Messaging.ServiceBus.ServiceBusException ex)
+        catch (ServiceBusException ex)
         {
             if (ex.Reason == Azure.Messaging.ServiceBus.ServiceBusFailureReason.MessagingEntityNotFound)
             {
@@ -64,7 +59,7 @@ public class TransferDeadLetterMessages
 
             await ProcessDeadLetterMessagesAsync($"queue: {queueName}", fetchCount, sender, dlqReceiver);
         }
-        catch (Azure.Messaging.ServiceBus.ServiceBusException ex)
+        catch (ServiceBusException ex)
         {
             if (ex.Reason == Azure.Messaging.ServiceBus.ServiceBusFailureReason.MessagingEntityNotFound)
             {
@@ -85,7 +80,7 @@ public class TransferDeadLetterMessages
 
     private static async Task ProcessDeadLetterMessagesAsync(string source, int fetchCount, ServiceBusSender sender, ServiceBusReceiver dlqReceiver)
     {
-        var wait = new System.TimeSpan(0, 0, 10);
+        var wait = new TimeSpan(0, 0, 10);
 
         Console.WriteLine($"fetching messages ({wait.TotalSeconds} seconds retrieval timeout)");
         Console.WriteLine(source);

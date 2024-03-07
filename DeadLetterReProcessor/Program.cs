@@ -1,6 +1,5 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using DeadLetterReProcessor;
-using System.Net;
 
 //Console.WriteLine("Let's process a dead letter queue.");
 //Console.WriteLine("Please input the connection string");
@@ -11,10 +10,10 @@ using System.Net;
 //string subscriberName = Console.ReadLine()!;
 
 Console.WriteLine("Let's process a dead letter queue.");
-string subscriptionName = "TODO";
 string connectionString = "TODO";
+string subscriptionName = "TODO";
 string topicName = "TODO";
 
-int fetchCount = 1000;
+int fetchCount = 100;
 
-await TransferDeadLetterMessages.ProcessTopicAsync(connectionString, topicName, subscriptionName, fetchCount);
+await DeadLetterProcessor.ProcessTopicAsync(connectionString, topicName, subscriptionName, fetchCount);
